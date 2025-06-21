@@ -1,67 +1,58 @@
 import { Hono } from "hono";
-import { db } from "../db/index.js";
-import { users } from "../db/schema.js";
-import type { InsertUser } from "../db/schema.js";
-import { eq } from "drizzle-orm";
+import prisma from "../db/prisma.js"; // your PrismaClient instance
+import type { User } from '../generated/prisma/index.js';
+
+
 
 const router = new Hono();
 
-// GET /users
-router.get("/", async c => {
-  const all = await db.select().from(users);
-  return c.json(all);
+router.post("/", async c => {
+  const body = await c.req.json<Partial<User>>();
+  const newUser: User = await prisma.user.create({ data: body });
+// valid type
+  const user = await prisma.user.create({ data: body });
+  return c.json(user, 201);
 });
 
-// GET /users/:id
-router.get("/:id", async c => {
-  const id = Number(c.req.param("id"));
-  if (isNaN(id)) {
-    return c.json({ error: "Invalid user ID" }, 400);
-  }
-  const user = await db.select().from(users).where(eq(users.id, id)).get();
-  if (!user) {
-    return c.json({ error: "Not found" }, 404);
-  }
+// GET by ID
+router.get('/:id', async c => {
+  const id = Number(c.req.param('id'));
+  if (isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
+  const user = await prisma.user.findUnique({ where: { id } });
+  if (!user) return c.json({ error: "Not found" }, 404);
   return c.json(user);
 });
 
-// POST /users
-router.post("/", async c => {
-  const body = await c.req.json<InsertUser>();
-  if (!body.name || !body.email || typeof body.age !== "number") {
-    return c.json({ error: "Missing required fields" }, 400);
+// POST new user
+router.post('/', async c => {
+  const { name, email, age } = await c.req.json<Partial<{ name: string; email: string; age: number }>>();
+  if (!name || !email || typeof age !== 'number') {
+    return c.json({ error: "Missing fields" }, 400);
   }
-  const [res] = await db.insert(users).values(body).returning();
-  return c.json(res, 201);
+  const user = await prisma.user.create({ data: { name, email, age } });
+  return c.json(user, 201);
 });
 
 // PUT /users/:id
-router.put("/:id", async c => {
-  const id = Number(c.req.param("id"));
-  if (isNaN(id)) {
-    return c.json({ error: "Invalid user ID" }, 400);
-  }
-  const body = await c.req.json<Partial<InsertUser>>();
-  const [res] = await db.update(users).set(body).where(eq(users.id, id)).returning();
-  if (!res) {
+router.put('/:id', async c => {
+  const id = Number(c.req.param('id'));
+  const { name, email, age } = await c.req.json<Partial<{ name: string; email: string; age: number }>>();
+  try {
+    const user = await prisma.user.update({ where: { id }, data: { name, email, age } });
+    return c.json(user);
+  } catch {
     return c.json({ error: "Not found" }, 404);
   }
-  return c.json(res);
 });
 
 // DELETE /users/:id
-// DELETE handler
-router.delete("/:id", async c => {
-  const id = Number(c.req.param("id"));
-  if (isNaN(id)) return c.text("Invalid user ID", 400);
-
-  // Assuming delete returns array of deleted rows
-  const deleted = await db.delete(users).where(eq(users.id, id)).returning();
-
-  if (deleted.length === 0) {
-    return c.text("Not found", 404);
+router.delete('/:id', async c => {
+  const id = Number(c.req.param('id'));
+  try {
+    await prisma.user.delete({ where: { id } });
+  } catch {
+    return c.json({ error: "Not found" }, 404);
   }
-
 });
 
 export default router;
